@@ -5,8 +5,8 @@
   #error "Unsupported compiler"
 #endif
 
-#include <stddef.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -31,6 +31,13 @@
 #else
   #define RSYS_API extern IMPORT_SYM
 #endif
+
+/*******************************************************************************
+ * Code inlining
+ ******************************************************************************/
+#define FINLINE inline __attribute__((always_inline))
+#define INLINE inline
+#define NOINLINE __attribute__((noinline))
 
 /*******************************************************************************
  * Data alignment
@@ -73,8 +80,8 @@
 /*******************************************************************************
  * Branch prediction information
  ******************************************************************************/
-#define LIKELY(x) __builtin_expect(x, 1)
-#define UNLIKELY(x) __builtin_expect(x, 0)
+#define LIKELY(x) __builtin_expect((x), 1)
+#define UNLIKELY(x) __builtin_expect((x), 0)
 
 /*******************************************************************************
  * SIMD instruction sets

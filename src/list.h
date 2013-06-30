@@ -8,101 +8,120 @@ struct list_node {
   struct list_node* prev;
 };
 
-/*******************************************************************************
- * Private macros
+/******************************************************************************
+ * Private functions
  ******************************************************************************/
-#define ADD_NODE__(Node, Prev, Next)                                           \
-  {                                                                            \
-    struct list_node* prev__ = (Prev);                                         \
-    struct list_node* next__ = (Next);                                         \
-    struct list_node* node__ = (Node);                                         \
-    next__->prev = node__;                                                     \
-    node__->next = next__;                                                     \
-    node__->prev = prev__;                                                     \
-    prev__->next = node__;                                                     \
-  } (void)0
+static FINLINE void
+add_node__
+  (struct list_node* node,
+   struct list_node* prev,
+   struct list_node* next)
+{
+  ASSERT(node && prev && next);
+  next->prev = node;
+  node->next = next;
+  node->prev = prev;
+  prev->next = node;
+}
 
-#define DEL_NODE__(Prev, Next)                                                 \
-  {                                                                            \
-    struct list_node* prev__ = (Prev);                                         \
-    struct list_node* next__ = (Next);                                         \
-    next__->prev = prev__;                                                     \
-    prev__->next = next__;                                                     \
-  } (void)0
+static FINLINE void
+del_node__(struct list_node* prev, struct list_node* next)
+{
+  ASSERT(prev && next);
+  next->prev = prev;
+  prev->next = next;
+}
 
-/*******************************************************************************
+/******************************************************************************
  * Helper macros
  ******************************************************************************/
 #define LIST_FOR_EACH(Pos, List)                                               \
-  for(Pos = (List)->next; Pos != (List); Pos = Pos->next)
+  for(struct list_node* Pos = (List)->next; Pos != (List); Pos = Pos->next)
 
 #define LIST_FOR_EACH_REVERSE(Pos, List)                                       \
-  for(Pos = (List)->prev; Pos != (List); Pos = Pos->prev)
+  for(struct list_node* Pos = (List)->prev; Pos != (List); Pos = Pos->prev)
 
-/* Safe against removal of list entry */
-#define LIST_FOR_EACH_SAFE(Pos, Tmp, List)                                     \
-  for(Pos = (List)->next, Tmp = Pos->next;                                     \
+/* Safe against removal of list entry. */
+#define LIST_FOR_EACH_SAFE(Pos, List)                                          \
+  for(struct list_node* Pos = (List)->next,* tmp ## COUNTER ## __ = Pos->next; \
       Pos != (List);                                                           \
-      Pos = Tmp, Tmp = Pos->next)
+      Pos = tmp ## COUNTER ## __ , tmp ## COUNTER ## __ = Pos->next)
 
-/* Safe against removal of list entry */
-#define LIST_FOR_EACH_REVERSE_SAFE(Pos, Tmp, List)                             \
-  for(Pos = (List)->prev, Tmp = Pos->prev;                                     \
+/* Safe against removal of list entry. */
+#define LIST_FOR_EACH_REVERSE_SAFE(Pos, List)                                  \
+  for(struct list_node* Pos = (List)->prev,* tmp ## COUNTER ## __ = Pos->prev; \
       Pos != (List);                                                           \
-      Pos = Tmp, Tmp = Pos->prev)
+      Pos = tmp ## COUNTER ## __, tmp ## COUNTER ## __ = Pos->prev)
 
-/*******************************************************************************
- * Node list public macros
+/******************************************************************************
+ * Node list functions
  ******************************************************************************/
-#define LIST_INIT(Node)                                                        \
-  {                                                                            \
-    (Node)->next = (Node);                                                     \
-    (Node)->prev = (Node);                                                     \
-  } (void)0
+static FINLINE void
+list_init(struct list_node* node)
+{
+  ASSERT(node);
+  node->next = node;
+  node->prev = node;
+}
 
-#define IS_LIST_EMPTY(Node) ((Node)->next == (Node))
+static FINLINE int
+is_list_empty(const struct list_node* node)
+{
+  ASSERT(node);
+  return node->next == node;
+}
 
-#define LIST_HEAD(Node)                                                        \
-  (                                                                            \
-    ASSERT(!IS_LIST_EMPTY(Node)),                                              \
-    (Node)->next                                                               \
-  )
+static FINLINE struct list_node*
+list_head(struct list_node* node)
+{
+  ASSERT(node && !is_list_empty(node));
+  return node->next;
+}
 
-#define LIST_TAIL(Node)                                                        \
-  (                                                                            \
-    ASSERT(!IS_LIST_EMPTY(Node)),                                              \
-    (Node)->prev                                                               \
-  )
+static FINLINE struct list_node*
+list_tail(struct list_node* node)
+{
+  ASSERT(node && !is_list_empty(node));
+  return node->prev;
+}
 
-#define LIST_ADD(List, Node)                                                   \
-  {                                                                            \
-    ASSERT(IS_LIST_EMPTY(Node));                                               \
-    ADD_NODE__(Node, List, (List)->next);                                      \
-  } (void)0
+static FINLINE void
+list_add(struct list_node* list, struct list_node* node)
+{
+  ASSERT(list && node && is_list_empty(node));
+  add_node__(node, list, list->next);
+}
 
-#define LIST_ADD_TAIL(List, Node)                                              \
-  {                                                                            \
-    ASSERT(IS_LIST_EMPTY(Node));                                               \
-    ADD_NODE__(Node, (List)->prev, List);                                      \
-  } (void)0
+static FINLINE void
+list_add_tail(struct list_node* list, struct list_node* node)
+{
+  ASSERT(list && node && is_list_empty(node));
+  add_node__(node, list->prev, list);
+}
 
-#define LIST_DEL(Node)                                                         \
-  {                                                                            \
-    DEL_NODE__((Node)->prev, (Node)->next);                                    \
-    LIST_INIT(Node);                                                           \
-  } (void)0
+static FINLINE void
+list_del(struct list_node* node)
+{
+  ASSERT(node);
+  del_node__(node->prev, node->next);
+  list_init(node);
+}
 
-#define LIST_MOVE(Node, List)                                                  \
-  {                                                                            \
-    DEL_NODE__((Node)->prev, (Node)->next);                                    \
-    ADD_NODE__(Node, List, (List)->next);                                      \
-  } (void)0
+static FINLINE void
+list_move(struct list_node* node, struct list_node* list)
+{
+  ASSERT(node && list);
+  del_node__(node->prev, node->next);
+  add_node__(node, list, list->next);
+}
 
-#define LIST_MOVE_TAIL(Node, List)                                             \
-  {                                                                            \
-    DEL_NODE__((Node)->prev, (Node)->next);                                    \
-    ADD_NODE__(Node, (List)->prev, List);                                      \
-  } (void)0
+static FINLINE void
+list_move_tail(struct list_node* node, struct list_node* list)
+{
+  ASSERT(node && list);
+  del_node__(node->prev, node->next);
+  add_node__(node, list->prev, list);
+}
 
 #endif /* LIST_H */
 
