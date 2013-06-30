@@ -1,3 +1,4 @@
+#include "atomic.h"
 #include "mem_allocator.h"
 #include "math.h"
 #include <malloc.h>
@@ -7,8 +8,8 @@
  * Default allocator functions
  ******************************************************************************/
 struct alloc_counter {
-  size_t nb_allocs;
-  size_t allocated_size;
+  atomic_size_T nb_allocs;
+  atomic_size_T allocated_size;
 };
 
 static void*
@@ -20,28 +21,21 @@ default_alloc
 {
   void* mem = NULL;
 
+  (void)filename;
+  (void)fileline;
+
   if(size) {
     mem = malloc(size);
-    #ifndef NDEBUG
+    #ifdef NDEBUG
+    (void)data;
+    #else
     ASSERT(data);
     if(mem) {
-      struct alloc_counter* alloc_counter = data;
-      const size_t allocated_size =
-        alloc_counter->allocated_size + malloc_usable_size(mem);
-
-      if( (allocated_size < alloc_counter->allocated_size) /* Overflow */
-        | (alloc_counter->nb_allocs == SIZE_MAX)) {
-        free(mem);
-        mem = NULL;
-      } else {
-        alloc_counter->allocated_size = allocated_size;
-        ++alloc_counter->nb_allocs;
-      }
+      struct alloc_counter* counter = data;
+      const size_t size_mem = malloc_usable_size(mem);
+      ATOMIC_ADD(&counter->allocated_size, size_mem);
+      ATOMIC_INCR(&counter->nb_allocs);
     }
-    #else
-    (void)data;
-    (void)filename;
-    (void)fileline;
     #endif
   }
   return mem;
@@ -51,18 +45,18 @@ static void
 default_free(void* data, void* mem)
 {
   if(mem) {
-    #ifndef NDEBUG
-    struct alloc_counter* alloc_counter = data;
-    size_t size_to_free = malloc_usable_size(mem);
+    #ifdef NDEBUG
+    (void)data;
+    #else
+    struct alloc_counter* counter = data;
+    size_t size_mem = malloc_usable_size(mem);
     ASSERT
       ( (data != NULL)
-      & (alloc_counter->nb_allocs != 0)
-      & (alloc_counter->allocated_size >= size_to_free));
+      & (counter->nb_allocs != 0)
+      & (counter->allocated_size >= size_mem));
 
-    alloc_counter->allocated_size -= size_to_free;
-    --alloc_counter->nb_allocs;
-    #else
-    (void)data;
+    ATOMIC_SUB(&counter->allocated_size, size_mem);
+    ATOMIC_DECR(&counter->nb_allocs);
     #endif
     free(mem);
   }
@@ -80,8 +74,9 @@ default_calloc
   const size_t alloc_size = nbelmts * size;
 
   mem = default_alloc(data, alloc_size, filename, fileline);
-  if(mem)
+  if(mem) {
     memset(mem, 0, alloc_size);
+  }
   return mem;
 }
 
@@ -108,27 +103,15 @@ default_realloc
     if(size == 0) {
       default_free(data, mem);
     } else {
-      struct alloc_counter* alloc_counter = data;
-      size_t old_size = malloc_usable_size(mem);
-      size_t new_allocated_size = 0;
+      struct alloc_counter* counter = data;
+      const size_t size_old = malloc_usable_size(mem);
 
-      ASSERT(alloc_counter->allocated_size >= old_size);
-      alloc_counter->allocated_size -= old_size;
+      ASSERT(counter->allocated_size >= size_old);
+      ATOMIC_SUB(&counter->allocated_size, size_old);
+
       new_mem = realloc(mem, size);
-      new_allocated_size =
-        alloc_counter->allocated_size + malloc_usable_size(new_mem);
-
-      /* Check overflow and new_mem != NULL. */
-      if(new_allocated_size <= alloc_counter->allocated_size) {
-        if(new_mem) {
-          free(new_mem);
-          new_mem = NULL;
-        }
-        ASSERT(alloc_counter->nb_allocs);
-        --alloc_counter->nb_allocs;
-      } else {
-        alloc_counter->allocated_size += malloc_usable_size(new_mem);
-      }
+      const size_t size_new = malloc_usable_size(new_mem);
+      ATOMIC_ADD(&counter->allocated_size, size_new);
     }
   }
   #endif
@@ -145,28 +128,21 @@ default_aligned_alloc
 {
   void* mem = NULL;
 
+  (void)filename;
+  (void)fileline;
+
   if(size && IS_POWER_OF_2(alignment)) {
     mem = memalign(alignment, size);
-    #ifndef NDEBUG
+    #ifdef NDEBUG
+    (void)data;
+    #else
     ASSERT(data);
     if(mem) {
-      struct alloc_counter* alloc_counter = data;
-      const size_t allocated_size =
-        alloc_counter->allocated_size + malloc_usable_size(mem);
-
-      if( (allocated_size < alloc_counter->allocated_size) /* Overflow */
-        | (alloc_counter->nb_allocs == SIZE_MAX)) {
-        free(mem);
-        mem = NULL;
-      } else {
-        alloc_counter->allocated_size = allocated_size;
-        ++alloc_counter->nb_allocs;
-      }
+      struct alloc_counter* counter = data;
+      const size_t size_mem = malloc_usable_size(mem);
+      ATOMIC_ADD(&counter->allocated_size, size_mem);
+      ATOMIC_INCR(&counter->nb_allocs);
     }
-    #else
-    (void)data;
-    (void)filename;
-    (void)fileline;
     #endif
   }
   return mem;
@@ -179,9 +155,9 @@ default_allocated_size(const void* data)
   (void)data;
   return 0;
   #else
-  const struct alloc_counter* alloc_counter = data;
-  ASSERT(alloc_counter != NULL);
-  return alloc_counter->allocated_size;
+  const struct alloc_counter* counter = data;
+  ASSERT(counter != NULL);
+  return counter->allocated_size;
   #endif
 }
 
@@ -197,19 +173,18 @@ default_dump
     dump[0] = '\0';
   return 0;
   #else
-  const struct alloc_counter* alloc_counter = NULL;
+  const struct alloc_counter* counter = data;
   size_t dump_len = 0;
   int len = 0;
 
-  ASSERT(data && (!max_dump_len || dump));
-  alloc_counter = data;
+  ASSERT(counter && (!max_dump_len || dump));
 
   len = snprintf
     (dump,
      max_dump_len,
      "%zu bytes allocated in %zu allocations.",
-     alloc_counter->allocated_size,
-     alloc_counter->nb_allocs);
+     counter->allocated_size,
+     counter->nb_allocs);
   ASSERT(len >= 0);
   dump_len = (size_t)len;
 

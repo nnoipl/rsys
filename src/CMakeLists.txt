@@ -23,13 +23,14 @@ set(RSYS_FILES_SRC
     mem_allocator.c)
 
 set(RSYS_FILES_INC
-  clock_time.h
-  image.h
+   atomic.h
+#  clock_time.h
+#  image.h
   list.h
-  math.h
+#  math.h
   mem_allocator.h
-  ref_count.h
-  signal.h
+#  ref_count.h
+#  signal.h
   rsys.h)
 
 add_library(rsys SHARED ${RSYS_FILES_SRC} ${RSYS_FILES_INC})
